@@ -3,43 +3,32 @@ set -euo pipefail
 
 rclone version
 
-# Ensure rclone configuration is available.
-ensure_config() {
-  local user_cfg_dir="$HOME/.config/rclone"
-  local user_cfg_file="$user_cfg_dir/rclone.conf"
-  mkdir -p "$user_cfg_dir"
-
-  # If /config/rclone.conf is mounted, symlink it.
-  if [[ -f /config/rclone.conf ]]; then
-    ln -sf /config/rclone.conf "$user_cfg_file"
-  # If the file is not in /config, but the user's exists and /config is writable, copy it for persistence.
-  elif [[ -f "$user_cfg_file" && -w /config && ! -f /config/rclone.conf ]]; then
-    cp "$user_cfg_file" /config/rclone.conf
-  fi
-
-  # Export absolute path (rclone honors RCLONE_CONFIG)
-  if [[ -f "$user_cfg_file" ]]; then
-    export RCLONE_CONFIG="$user_cfg_file"
-  fi
-}
-
-ensure_config
-
-echo : "${ACTION:=run}"
-echo "$ACTION"
-
-
-if [[ "${ACTION}" == "config" ]]; then
-  rclone config
-  ensure_config  # resynchronize after changes
-  echo "----- ACTIVE rclone.conf -----"
-  if [[ -f "$RCLONE_CONFIG" ]]; then
-    cat "$RCLONE_CONFIG"
-  else
-    echo "Configuration file not found (RCLONE_CONFIG does not point to a file)." >&2
-  fi
-elif [[ "${ACTION}" == "run" ]]; then
-  # Placeholder: this is where the synchronization logic will go; currently a test call
-  rclone --version > /dev/null
-  echo "Rclone ready (dry placeholder)."
+if [[ ! -f /config/rclone.conf ]]; then
+  echo "[ERROR] Missing file /config/rclone.conf" >&2
+  exit 1
 fi
+if [[ ! -f /config/jobs.json ]]; then
+  echo "[ERROR] Missing file /config/jobs.json" >&2
+  exit 1
+fi
+
+# Struktura: { "jobs": [ {"source": "remote:/path", "destination": "remote2:/path"}, ... ] }
+
+TOTAL=$(jq '.jobs | length' /config/jobs.json)
+echo "[INFO] Jobs count: ${TOTAL}"
+
+idx=0
+jq -c '.jobs[]' /config/jobs.json | while read -r job; do
+  idx=$((idx+1))
+  src=$(echo "$job" | jq -r '.source')
+  dst=$(echo "$job" | jq -r '.destination')
+  if [[ -z "$src" || -z "$dst" || "$src" == "null" || "$dst" == "null" ]]; then
+    echo "[WARN] Job $idx skipped (incorrect structure)." >&2
+    continue
+  fi
+  echo "[JOB $idx/${TOTAL}] $src -> $dst"
+  rclone sync "$src" "$dst" --config /config/rclone.conf --transfers 4 --verbose
+
+done
+
+echo "[INFO] Finished processing jobs."

@@ -6,7 +6,7 @@ ARG RCLONE_DOWNLOAD_URL=https://downloads.rclone.org/rclone-current-linux-amd64.
 # Instalacja zależności + pobranie i zainstalowanie rclone z oficjalnej paczki
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates curl unzip; \
+    apt-get install -y --no-install-recommends ca-certificates curl unzip jq; \
     rm -rf /var/lib/apt/lists/*; \
     curl -fsSL "$RCLONE_DOWNLOAD_URL" -o /tmp/rclone.zip; \
     unzip /tmp/rclone.zip -d /tmp; \
@@ -21,13 +21,11 @@ RUN useradd -m app
 WORKDIR /app
 
 COPY src/run.sh /app/run.sh
-RUN chmod +x /app/run.sh && mkdir -p /config /data && chown -R app:app /config /data
+RUN chmod +x /app/run.sh && mkdir -p /config && chown -R app:app /config
 
 USER app
 
-VOLUME ["/config", "/data"]
+VOLUME ["/config"]
 EXPOSE 8080
-
-ENV ACTION=run
 
 ENTRYPOINT ["/app/run.sh"]
