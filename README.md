@@ -19,6 +19,7 @@ config/
 Structure:
 ```
 {
+  "dry-run": false,           // optional, default false; when true rclone runs with --dry-run
   "jobs": [
     { "source": "remote1:/path", "destination": "remote2:/other_path" },
     { "source": "remote3:/", "destination": "remote4:/backup" }
@@ -26,3 +27,12 @@ Structure:
 }
 ```
 Each object must have `source` and `destination` fields in a format accepted by rclone (REMOTE:path).
+
+To test without making changes set:
+```
+{
+  "dry-run": true,
+  "jobs": [ { "source": "remote1:/", "destination": "remote2:/backup" } ]
+}
+```
+This will display planned operations only.

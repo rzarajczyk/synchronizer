@@ -12,12 +12,18 @@ if [[ ! -f /config/jobs.json ]]; then
   exit 1
 fi
 
-# Struktura: { "jobs": [ {"source": "remote:/path", "destination": "remote2:/path"}, ... ] }
-
 TOTAL=$(jq '.jobs | length' /config/jobs.json)
 echo "[INFO] Jobs count: ${TOTAL}"
 
-idx=0
+DRY_RUN=$(jq -r '."dry-run" // false' /config/jobs.json)
+if [[ "$DRY_RUN" == "true" ]]; then
+  echo "[INFO] dry-run ACTIVE"
+  RCLONE_DRY_RUN="--dry-run"
+else
+  RCLONE_DRY_RUN=""
+fi
+
+declare -i idx=0
 jq -c '.jobs[]' /config/jobs.json | while read -r job; do
   idx=$((idx+1))
   src=$(echo "$job" | jq -r '.source')
@@ -26,8 +32,8 @@ jq -c '.jobs[]' /config/jobs.json | while read -r job; do
     echo "[WARN] Job $idx skipped (incorrect structure)." >&2
     continue
   fi
-  echo "[JOB $idx/${TOTAL}] $src -> $dst"
-  rclone sync "$src" "$dst" --config /config/rclone.conf --transfers 4 --verbose
+  echo "[JOB $idx/${TOTAL}${RCLONE_DRY_RUN}] $src -> $dst"
+  rclone sync "$src" "$dst" --config /config/rclone.conf --transfers 4 --verbose $RCLONE_DRY_RUN
 
 done
 
