@@ -4,16 +4,29 @@ import os
 import shutil
 import subprocess
 import sys
+import logging
 from pathlib import Path
 
-def log(level: str, msg: str):
-    print(f"[{level}] {msg}")
+from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.triggers.cron import CronTrigger
+
+# ----------------- Logging setup -----------------
+logging.basicConfig(
+    level="INFO",
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("synchronizer")
+
+# ----------------- Errors -----------------
 
 def fail(msg: str, code: int = 1):
-    log("ERROR", msg)
+    logger.error(msg)
     sys.exit(code)
 
-def main():
+# ----------------- Config loading -----------------
+
+def load_config():
     config_dir = Path(os.environ.get("CONFIG", "/config"))
     rclone_conf = config_dir / "rclone.conf"
     jobs_file = config_dir / "jobs.json"
@@ -44,25 +57,33 @@ def main():
     if not isinstance(jobs, list):
         fail("'jobs' must be an array")
 
-    total = len(jobs)
-    log("INFO", f"Jobs count: {total}")
+    return {
+        "rclone_path": rclone_path,
+        "rclone_conf": rclone_conf,
+        "jobs": jobs,
+        "raw": data,
+    }
 
-    dry_run = bool(data.get("dry-run", False))
-    rclone_dry_flag = "--dry-run" if dry_run else ""
+# ----------------- Job execution -----------------
+
+def run_jobs(rclone_path: str, rclone_conf: Path, jobs, dry_run: bool):
+    total = len(jobs)
+    logger.info(f"Jobs count: {total}")
     if dry_run:
-        log("INFO", "dry-run ACTIVE")
+        logger.info("dry-run ACTIVE")
+    rclone_dry_flag = " --dry-run" if dry_run else ""
 
     for idx, job in enumerate(jobs, start=1):
         if not isinstance(job, dict):
-            log("WARN", f"Job {idx} skipped (not an object).")
+            logger.warning(f"Job {idx} skipped (not an object).")
             continue
         src = job.get("source")
         dst = job.get("destination")
         if not src or not dst:
-            log("WARN", f"Job {idx} skipped (incorrect structure).")
+            logger.warning(f"Job {idx} skipped (incorrect structure).")
             continue
 
-        print(f"[JOB {idx}/{total}{rclone_dry_flag}] {src} -> {dst}")
+        logger.info(f"[JOB {idx}/{total}{rclone_dry_flag}] {src} -> {dst}")
 
         cmd = [
             rclone_path,
@@ -80,8 +101,53 @@ def main():
             subprocess.run(cmd, check=True)
         except subprocess.CalledProcessError as e:
             fail(f"rclone sync failed for job {idx}: {e}")
+    logger.info("Finished processing jobs.")
 
-    log("INFO", "Finished processing jobs.")
+# ----------------- Scheduler orchestration -----------------
+
+def scheduler_loop(cfg):
+    data = cfg["raw"]
+    schedule_expr = data.get("schedule")
+    dry_run = bool(data.get("dry-run", False))
+
+    if not schedule_expr:
+        logger.info("No schedule field - single run.")
+        run_jobs(cfg["rclone_path"], cfg["rclone_conf"], cfg["jobs"], dry_run)
+        return
+
+    logger.info(f"Scheduler active (cron): {schedule_expr}")
+
+    scheduler = BlockingScheduler()
+
+    def job_wrapper():
+        logger.info("Scheduled execution started")
+        run_jobs(cfg["rclone_path"], cfg["rclone_conf"], cfg["jobs"], dry_run)
+
+    try:
+        trigger = CronTrigger.from_crontab(schedule_expr)
+    except ValueError as e:  # invalid cron format
+        fail(f"Invalid cron expression: {e}")
+
+    scheduler.add_job(
+        job_wrapper,
+        trigger=trigger,
+        id="sync-jobs",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+
+    logger.info("Entering blocking scheduler loop (Ctrl+C to exit)...")
+    try:
+        scheduler.start()
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Shutdown signal received.")
+    finally:
+        scheduler.shutdown(wait=False)
+        logger.info("Scheduler stopped.")
+
+# ----------------- Entry -----------------
 
 if __name__ == "__main__":
-    main()
+    cfg = load_config()
+    scheduler_loop(cfg)

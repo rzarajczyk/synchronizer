@@ -5,7 +5,7 @@ ARG RCLONE_DOWNLOAD_URL=https://downloads.rclone.org/rclone-current-linux-amd64.
 
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates curl unzip python3; \
+    apt-get install -y --no-install-recommends ca-certificates curl unzip python3 python3-apscheduler; \
     rm -rf /var/lib/apt/lists/*; \
     curl -fsSL "$RCLONE_DOWNLOAD_URL" -o /tmp/rclone.zip; \
     unzip /tmp/rclone.zip -d /tmp; \
