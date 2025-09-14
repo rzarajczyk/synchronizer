@@ -3,10 +3,9 @@ FROM ubuntu:24.04
 ARG DEBIAN_FRONTEND=noninteractive
 ARG RCLONE_DOWNLOAD_URL=https://downloads.rclone.org/rclone-current-linux-amd64.zip
 
-# Instalacja zależności + pobranie i zainstalowanie rclone z oficjalnej paczki
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates curl unzip jq; \
+    apt-get install -y --no-install-recommends ca-certificates curl unzip python3; \
     rm -rf /var/lib/apt/lists/*; \
     curl -fsSL "$RCLONE_DOWNLOAD_URL" -o /tmp/rclone.zip; \
     unzip /tmp/rclone.zip -d /tmp; \
@@ -15,17 +14,15 @@ RUN set -eux; \
     rclone version; \
     rm -rf /tmp/rclone*
 
-# Tworzenie użytkownika (bez wymuszania UID aby uniknąć kolizji -> poprzednio exit code 4)
 RUN useradd -m app
 
 WORKDIR /app
 
-COPY src/run.sh /app/run.sh
-RUN chmod +x /app/run.sh && mkdir -p /config && chown -R app:app /config
+COPY run.py /app/run.py
+RUN chmod +x /app/run.py && mkdir -p /config && chown -R app:app /config
 
 USER app
 
 VOLUME ["/config"]
-EXPOSE 8080
 
-ENTRYPOINT ["/app/run.sh"]
+ENTRYPOINT ["python3", "/app/run.py"]
